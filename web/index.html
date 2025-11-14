@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Pack Calculator</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <div class="wrapper">
+
+    <h1>Pack Calculator</h1>
+    <p>
+      Enter pack sizes and requested items. The service finds a combination that
+      ships the fewest total items and, if tied, uses fewer packs.
+    </p>
+
+    <!-- Configuration -->
+    <div class="section">
+      <div class="section-header">
+        <h2>Configuration</h2>
+      </div>
+
+      <label for="pack-sizes-input">Pack sizes (comma separated)</label>
+      <input
+        id="pack-sizes-input"
+        type="text"
+        placeholder="250, 500, 1000, 2000, 5000"
+      />
+
+      <div class="button-row">
+        <button id="save-packs-btn" type="button">Save pack sizes</button>
+      </div>
+
+      <label for="items-input">Items to fulfil</label>
+      <input
+        id="items-input"
+        type="number"
+        min="1"
+        placeholder="e.g. 263"
+      />
+
+      <div class="button-row">
+        <button id="calculate-btn" type="button">Calculate</button>
+      </div>
+
+      <div id="status" class="status"></div>
+    </div>
+
+    <!-- Result -->
+    <div class="section">
+      <div class="section-header">
+        <h2>Result</h2>
+      </div>
+
+      <div id="result-summary" class="small-text">
+        No calculation yet.
+      </div>
+
+      <table id="result-table" style="display: none;">
+        <thead>
+          <tr>
+            <th>Pack size</th>
+            <th>Quantity</th>
+            <th>Total items</th>
+          </tr>
+        </thead>
+        <tbody id="result-body"></tbody>
+      </table>
+    </div>
+    
+    <div class="footer small-text" style="margin-top: 20px; text-align:center;">
+      Source code: 
+      <a href="https://github.com/a1eksandre/pack-calculator" target="_blank">
+        github.com/a1eksandre/pack-calculator
+      </a>
+    </div>
+  </div> <!-- wrapper end -->
+
+  <script>
+    var packSizesInput = document.getElementById("pack-sizes-input");
+    var itemsInput = document.getElementById("items-input");
+    var savePacksBtn = document.getElementById("save-packs-btn");
+    var calculateBtn = document.getElementById("calculate-btn");
+    var statusEl = document.getElementById("status");
+    var resultSummary = document.getElementById("result-summary");
+    var resultTable = document.getElementById("result-table");
+    var resultBody = document.getElementById("result-body");
+
+    function setStatus(msg, isError) {
+      statusEl.textContent = msg || "";
+      if (isError) {
+        statusEl.classList.add("error");
+      } else {
+        statusEl.classList.remove("error");
+      }
+    }
+
+    function parsePackSizes(text) {
+      var parts = text.split(",");
+      var result = [];
+      for (var i = 0; i < parts.length; i++) {
+        var s = parts[i].trim();
+        if (!s) continue;
+        var n = Number(s);
+        if (Number.isFinite(n) && n > 0) {
+          result.push(n);
+        }
+      }
+      return result;
+    }
+
+    function showResult(data) {
+      if (!data || !data.solution || data.solution.length === 0) {
+        resultSummary.textContent = "No solution returned.";
+        resultTable.style.display = "none";
+        return;
+      }
+
+      var items = data.items || 0;
+      var total = data.totalItems || 0;
+      var extra = data.extraItems;
+      if (typeof extra !== "number") {
+        extra = total - items;
+      }
+
+      resultSummary.textContent =
+        "Shipment for " + items +
+        " items. Total shipped: " + total +
+        ", extra items: " + extra + ".";
+
+      resultBody.innerHTML = "";
+      for (var i = 0; i < data.solution.length; i++) {
+        var row = data.solution[i];
+        var tr = document.createElement("tr");
+
+        var tdPack = document.createElement("td");
+        tdPack.textContent = row.pack;
+        tr.appendChild(tdPack);
+
+        var tdQty = document.createElement("td");
+        tdQty.textContent = row.quantity;
+        tr.appendChild(tdQty);
+
+        var tdItems = document.createElement("td");
+        tdItems.textContent = row.pack * row.quantity;
+        tr.appendChild(tdItems);
+
+        resultBody.appendChild(tr);
+      }
+
+      resultTable.style.display = "";
+    }
+
+    async function loadPackSizes() {
+      try {
+        setStatus("Loading pack sizes...");
+        var res = await fetch("/api/pack-sizes");
+        if (!res.ok) {
+          throw new Error("Request failed");
+        }
+        var data = await res.json();
+        if (data.packSizes && data.packSizes.length > 0) {
+          packSizesInput.value = data.packSizes.join(", ");
+          setStatus("");
+        } else {
+          setStatus("No pack sizes set. Please enter and save some.", true);
+        }
+      } catch (e) {
+        setStatus("Could not load pack sizes.", true);
+      }
+    }
+
+    async function savePackSizes() {
+      var sizes = parsePackSizes(packSizesInput.value);
+      if (sizes.length === 0) {
+        setStatus("Enter at least one positive pack size.", true);
+        return;
+      }
+
+      setStatus("Saving pack sizes...");
+      try {
+        var res = await fetch("/api/pack-sizes", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ packSizes: sizes })
+        });
+        if (!res.ok) {
+          var text = await res.text();
+          throw new Error(text || "Request failed");
+        }
+        var data = await res.json();
+        packSizesInput.value = data.packSizes.join(", ");
+        setStatus("Pack sizes saved.");
+      } catch (e) {
+        setStatus("Could not save pack sizes.", true);
+      }
+    }
+
+    async function calculate() {
+      var items = Number(itemsInput.value);
+      if (!Number.isFinite(items) || items <= 0) {
+        setStatus("Enter a positive number of items.", true);
+        return;
+      }
+
+      setStatus("Calculating...");
+      try {
+        var res = await fetch("/api/calculate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ items: items })
+        });
+        if (!res.ok) {
+          var text = await res.text();
+          throw new Error(text || "Request failed");
+        }
+        var data = await res.json();
+        showResult(data);
+        setStatus("Done.");
+      } catch (e) {
+        setStatus("Could not calculate packs.", true);
+      }
+    }
+
+    document.addEventListener("DOMContentLoaded", function() {
+      loadPackSizes();
+    });
+
+    savePacksBtn.addEventListener("click", savePackSizes);
+    calculateBtn.addEventListener("click", calculate);
+
+    itemsInput.addEventListener("keydown", function(e) {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        calculate();
+      }
+    });
+  </script>
+</body>
+</html>
