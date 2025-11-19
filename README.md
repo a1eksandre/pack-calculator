@@ -118,15 +118,3 @@ UI → API → Calculator → PackResult → JSON → UI
 For simplicity, pack sizes are stored **in-memory**.  
 Restart resets pack sizes to defaults.  
 Architecture allows adding DB/file storage easily.
-
-## Deployment
-
-This project is fully containerized and can run on any platform that supports Docker.
-For demonstration purposes, it is temporarily deployed on **AWS** using:
-
-- **Docker image** stored in **Amazon ECR**
-- **AWS App Runner** (ECS-backed managed container service)
-
-## Live Demo (Temporary)
-
-👉 https://pack-calculator.aleksandre.net/
